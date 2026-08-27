@@ -688,6 +688,20 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 ar = (AsyncResult)msg.obj;
                 if (ar.exception == null) {
                     PhoneConstants.State state = getState();
+                    // The legacy MTK radio sends an incoming-call pre-alert through its
+                    // vendor HIDL channel and only emits CALL_RING after it is accepted.
+                    // Unlike the AOSP radio implementation, it does not emit a standard
+                    // CALL_STATE_CHANGED at that point. Polling here lets the call tracker
+                    // discover the now-visible incoming call and notify Telecom/Dialer.
+                    if (state == PhoneConstants.State.IDLE
+                            && (SystemProperties.getBoolean(
+                                    "ro.vendor.radio.repoll_call_state", false)
+                            || SystemProperties.getBoolean(
+                                    "persist.vendor.radio.repoll_call_state", false))
+                            && getCallTracker() != null) {
+                        Rlog.d(LOG_TAG, "Polling calls after legacy MTK CALL_RING");
+                        getCallTracker().pollCallsWhenSafe();
+                    }
                     if ((!mDoesRilSendMultipleCallRing)
                             && ((state == PhoneConstants.State.RINGING) ||
                                     (state == PhoneConstants.State.IDLE))) {

@@ -70,6 +70,13 @@ public class GsmCdmaCallTracker extends CallTracker {
     private static final int MAX_CONNECTIONS_CDMA = 8;
     private static final int MAX_CONNECTIONS_PER_CALL_CDMA = 1; //only 1 connection allowed per call
 
+    // A few legacy MTK RILs emit CALL_STATE_CHANGED just before their CLCC
+    // cache contains a newly arriving call.  A single delayed poll prevents
+    // that race from turning an incoming call into an endless network-side
+    // connection attempt with no ringing UI.
+    private static final int EVENT_REPOLL_CALL_STATE = 100;
+    private static final long CALL_STATE_REPOLL_DELAY_MILLIS = 500;
+
     //***** Instance Variables
     @VisibleForTesting
     public GsmCdmaConnection[] mConnections;
@@ -1562,7 +1569,21 @@ public class GsmCdmaCallTracker extends CallTracker {
             break;
 
             case EVENT_REPOLL_AFTER_DELAY:
+                pollCallsWhenSafe();
+            break;
+
             case EVENT_CALL_STATE_CHANGE:
+                pollCallsWhenSafe();
+                if (SystemProperties.getBoolean("ro.vendor.radio.repoll_call_state", false)
+                        || SystemProperties.getBoolean(
+                                "persist.vendor.radio.repoll_call_state", false)) {
+                    removeMessages(EVENT_REPOLL_CALL_STATE);
+                    sendEmptyMessageDelayed(EVENT_REPOLL_CALL_STATE,
+                            CALL_STATE_REPOLL_DELAY_MILLIS);
+                }
+            break;
+
+            case EVENT_REPOLL_CALL_STATE:
                 pollCallsWhenSafe();
             break;
 

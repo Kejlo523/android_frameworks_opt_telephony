@@ -36,6 +36,7 @@ import android.os.ParcelUuid;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.provider.Settings.Global;
@@ -294,6 +295,18 @@ public class SubscriptionInfoUpdater extends Handler {
                 break;
 
             case EVENT_SIM_READY:
+                // On hinoki the legacy MTK SIM I/O queue can stall before
+                // SIMRecords finishes loading. The modem nevertheless exports
+                // a valid ICCID, so publish the physical subscription as soon
+                // as the card reaches READY instead of leaving slot 0 empty.
+                if ("hinoki".equals(SystemProperties.get("ro.product.device"))) {
+                    String property = msg.arg1 == 0 ? "ril.iccid.sim1" : "ril.iccid.sim2";
+                    String iccid = SystemProperties.get(property, "");
+                    if (!TextUtils.isEmpty(iccid) && !"N/A".equalsIgnoreCase(iccid)) {
+                        mIccId[msg.arg1] = IccUtils.stripTrailingFs(iccid);
+                        updateSubscriptionInfoByIccId(msg.arg1, false);
+                    }
+                }
                 cardIds.add(getCardIdFromPhoneId(msg.arg1));
                 updateEmbeddedSubscriptions(cardIds, (hasChanges) -> {
                     if (hasChanges) {

@@ -192,6 +192,9 @@ public class NetworkRegistrationManager extends Handler {
                 mINetworkService.createNetworkServiceProvider(mPhone.getPhoneId());
                 mINetworkService.registerForNetworkRegistrationInfoChanged(mPhone.getPhoneId(),
                         new NetworkRegStateCallback());
+                // SST often polls before this bind completes ("Service not connected").
+                // Kick a fresh poll once the binder is actually usable.
+                mRegStateChangeRegistrants.notifyRegistrants();
             } catch (RemoteException exception) {
                 // Remote exception means that the binder already died.
                 mDeathRecipient.binderDied();

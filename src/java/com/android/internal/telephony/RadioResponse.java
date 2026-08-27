@@ -37,6 +37,7 @@ import android.hardware.radio.V1_4.CarrierRestrictionsWithPriority;
 import android.hardware.radio.V1_4.IRadioResponse;
 import android.hardware.radio.V1_4.SimLockMultiSimPolicy;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Message;
 import android.os.SystemClock;
 import android.service.carrier.CarrierIdentifier;
@@ -396,7 +397,26 @@ public class RadioResponse extends IRadioResponse.Stub {
      * @param responseInfo Response info struct containing response type, serial no. and error
      */
     public void setRadioPowerResponse(RadioResponseInfo responseInfo) {
-        responseVoid(responseInfo);
+        RILRequest rr = mRil.processResponse(responseInfo);
+
+        if (rr != null) {
+            Object ret = null;
+            if (responseInfo.error == RadioError.NONE) {
+                // The legacy MT6757 proxy sends its initial radio-state indication to
+                // radioService[1] even though Android registered the only active RIL as
+                // slot 0.  The modem accepts RADIO_POWER, but the framework otherwise
+                // remains RADIO_POWER_UNAVAILABLE forever after a clean data wipe.
+                // Slot 0 is the sole modem-power owner on hinoki; power-off requests are
+                // filtered in RIL, so a successful vendor response here always means ON.
+                if ("hinoki".equals(Build.DEVICE) && mRil.mPhoneId == 0) {
+                    mRil.riljLog("Synthesizing RADIO_POWER_ON after vendor response on hinoki");
+                    mRil.setRadioState(TelephonyManager.RADIO_POWER_ON,
+                            true /* forceNotifyRegistrants */);
+                }
+                sendMessageResponse(rr.mResult, ret);
+            }
+            mRil.processResponseDone(rr, responseInfo, ret);
+        }
     }
 
     /**
