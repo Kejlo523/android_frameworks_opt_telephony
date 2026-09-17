@@ -41,6 +41,7 @@ import android.content.SharedPreferences;
 import android.database.SQLException;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -1600,6 +1601,13 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public String getDeviceSvn() {
         if (isPhoneTypeGsm() || isPhoneTypeCdmaLte()) {
+            // The legacy MTK RIL used by hinoki does not always propagate the
+            // IMEISV returned by getDeviceIdentity.  Settings obtains the SV
+            // through this method, so provide the standard two-digit fallback
+            // instead of exposing it as unknown.
+            if ("hinoki".equals(Build.DEVICE) && TextUtils.isEmpty(mImeiSv)) {
+                return "00";
+            }
             return mImeiSv;
         } else {
             loge("getDeviceSvn(): return 0");

@@ -748,6 +748,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
         // Suppress only Android's premature queries. Once the stock RIL has
         // had time to initialise the UICC, use its authoritative card state.
+        // In particular, the real response carries the application AID needed
+        // by subsequent SIM I/O; a permanently synthesized empty AID leaves
+        // SIMRecords incomplete even though the framework displays the card.
         if (ready) {
             return false;
         }
@@ -796,6 +799,11 @@ public class RIL extends BaseCommands implements CommandsInterface {
             result.sendToTarget();
         }
 
+        // Do not arm this retry until Android has actually requested radio
+        // power.  The committed, working bring-up deliberately kept early
+        // GET_SIM_STATUS traffic off the legacy MTK proxy: a timer started by
+        // a pre-power query can race the vendor's own SIM_BUSY polling and
+        // leave the UICC application permanently reported as absent.
         if (!ready && powerOn != 0 && !mHinokiIccStatusRetryScheduled) {
             mHinokiIccStatusRetryScheduled = true;
             mRilHandler.postDelayed(() -> {
@@ -3619,12 +3627,34 @@ public class RIL extends BaseCommands implements CommandsInterface {
     public void getDeviceIdentity(Message result) {
         if ("hinoki".equals(Build.DEVICE)) {
             if (result != null) {
-                // IMEI is already exported by the Oreo boot path; avoid the
-                // secondary identity AT sequence that races the mux.
+                // Sony's Oreo bootloader exports the IMEI on the kernel command
+                // line, but does not populate the legacy MTK properties.  Avoid
+                // the secondary identity AT sequence (it races the mux on this
+                // device) and use the bootloader-provided value instead.
                 String imei = SystemProperties.get("ril.imei.sim1",
                         SystemProperties.get("persist.radio.device.imei", ""));
+                if (TextUtils.isEmpty(imei)) {
+                    try {
+                        String cmdline = android.os.FileUtils.readTextFile(
+                                new java.io.File("/proc/cmdline"), 4096, null);
+                        for (String argument : cmdline.split("\\s+")) {
+                            final String prefix = "oemandroidboot.imei=";
+                            if (!argument.startsWith(prefix)) continue;
+
+                            String candidate = argument.substring(prefix.length());
+                            boolean valid = candidate.length() >= 14 && candidate.length() <= 16;
+                            for (int i = 0; valid && i < candidate.length(); i++) {
+                                valid = Character.isDigit(candidate.charAt(i));
+                            }
+                            if (valid) imei = candidate;
+                            break;
+                        }
+                    } catch (IOException e) {
+                        riljLoge("Unable to read hinoki boot identity");
+                    }
+                }
                 AsyncResult.forMessage(result,
-                        new String[] {imei, "", "", ""}, null);
+                        new String[] {imei, "00", "", ""}, null);
                 result.sendToTarget();
             }
             return;
